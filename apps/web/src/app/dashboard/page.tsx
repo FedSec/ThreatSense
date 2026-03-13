@@ -19,37 +19,32 @@ type Scan = {
   plugin: string;
 };
 
-function safeJsonParse(input: string) {
-  if (!input.trim()) return {};
-  try {
-    return JSON.parse(input);
-  } catch {
-    throw new Error("Parameters must be valid JSON (example: {\"ports\":\"1-1000\"})");
-  }
-}
+const SCAN_PRESETS: Record<string, { label: string; parameters: object }> = {
+  default: {
+    label: "Standard (Medium, High, Critical)",
+    parameters: { severities: ["medium", "high", "critical"], rate_limit: 50, timeout: 10, retries: 2 },
+  },
+  critical_only: {
+    label: "Quick (High & Critical only)",
+    parameters: { severities: ["high", "critical"], rate_limit: 75, timeout: 8, retries: 2 },
+  },
+  cve_focus: {
+    label: "CVE Focus",
+    parameters: { severities: ["medium", "high", "critical"], tags: "cves", rate_limit: 40, timeout: 12, retries: 2 },
+  },
+};
 
 export default function DashboardPage() {
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [requiresApproval, setRequiresApproval] = useState(false);
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [scans, setScans] = useState<Scan[]>([]);
 
   // Quick scan form
   const [assetId, setAssetId] = useState("");
-  const [scanType, setScanType] = useState<"vuln_scan" | "soc" | "ptaas">("vuln_scan");
-  const [plugin, setPlugin] = useState("nuclei_scan");
-  const [paramsText, setParamsText] = useState(`{
-  "severities": ["medium","high","critical"],
-  "exclude_tags": "dos,fuzz",
-  "rate_limit": 50,
-  "timeout": 10,
-  "retries": 1,
-  "wall_clock_timeout": 600,
-  "headless": false
-}`);
+  const [preset, setPreset] = useState("default");
 
   const recentScans = useMemo(() => scans.slice(0, 10), [scans]);
 
@@ -86,7 +81,7 @@ export default function DashboardPage() {
     setErr("");
     try {
       if (!assetId) throw new Error("Select an asset first.");
-      const parameters = safeJsonParse(paramsText);
+      const { parameters } = SCAN_PRESETS[preset];
 
       await apiFetch(
         "/scans",
@@ -94,9 +89,9 @@ export default function DashboardPage() {
           method: "POST",
           body: JSON.stringify({
             asset_id: assetId,
-            scan_type: scanType,
-            plugin,
-            requires_approval: requiresApproval,
+            scan_type: "vuln_scan",
+            plugin: "nuclei_scan",
+            requires_approval: false,
             parameters,
           }),
         },
@@ -187,8 +182,9 @@ export default function DashboardPage() {
 
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
-          gap: "24px",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: "16px",
+          alignItems: "end",
         }}>
           <div>
             <label style={styles.label}>Asset</label>
@@ -204,70 +200,36 @@ export default function DashboardPage() {
                 </option>
               ))}
             </select>
-
-            <label style={{ ...styles.label, marginTop: "16px" }}>Scan Type</label>
-            <select
-              style={styles.select}
-              value={scanType}
-              onChange={(e) => setScanType(e.target.value as any)}
-            >
-              <option value="vuln_scan">Vulnerability Scan</option>
-              <option value="soc">SOC Detection Run</option>
-              <option value="ptaas">PTaaS Workflow</option>
-            </select>
-
-            <label style={{ ...styles.label, marginTop: "16px" }}>Plugin</label>
-            <input
-              style={styles.input}
-              value={plugin}
-              onChange={(e) => setPlugin(e.target.value)}
-              placeholder='Example: "nuclei_scan" or "nmap_stub"'
-            />
-
-            <label style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              marginTop: "16px",
-              color: colors.textSecondary,
-              fontSize: "14px",
-              cursor: "pointer",
-            }}>
-              <input
-                type="checkbox"
-                checked={requiresApproval}
-                onChange={(e) => setRequiresApproval(e.target.checked)}
-                style={{ cursor: "pointer" }}
-              />
-              Requires approval (sets status to awaiting_approval)
-            </label>
           </div>
 
           <div>
-            <label style={styles.label}>Parameters (JSON)</label>
-            <textarea
-              style={{ ...styles.textarea, height: "200px" }}
-              value={paramsText}
-              onChange={(e) => setParamsText(e.target.value)}
-            />
+            <label style={styles.label}>Scan Profile</label>
+            <select
+              style={styles.select}
+              value={preset}
+              onChange={(e) => setPreset(e.target.value)}
+            >
+              {Object.entries(SCAN_PRESETS).map(([key, p]) => (
+                <option key={key} value={key}>{p.label}</option>
+              ))}
+            </select>
+          </div>
 
-            <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
-              <button
-                style={{ ...styles.button, flex: 1 }}
-                onClick={startScan}
-                disabled={loading}
-              >
-                START SCAN
-              </button>
-
-              <button
-                style={{ ...styles.buttonSecondary, flex: 1 }}
-                onClick={() => loadAll(token)}
-                disabled={loading}
-              >
-                REFRESH
-              </button>
-            </div>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button
+              style={{ ...styles.button, flex: 1 }}
+              onClick={startScan}
+              disabled={loading}
+            >
+              START SCAN
+            </button>
+            <button
+              style={{ ...styles.buttonSecondary }}
+              onClick={() => loadAll(token)}
+              disabled={loading}
+            >
+              REFRESH
+            </button>
           </div>
         </div>
       </section>

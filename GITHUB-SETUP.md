@@ -36,8 +36,9 @@ gh repo create ThreatSense --private --source=. --remote=origin --push
 After creating the repository on GitHub, you'll see instructions. Use these commands:
 
 ```bash
+
 # Add GitHub as remote
-git remote add origin https://github.com/YOUR_USERNAME/ThreatSense.git
+git remote add origin https://github.com/bebasset/ThreatSense.git
 
 # Verify remote
 git remote -v

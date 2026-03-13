@@ -43,9 +43,9 @@ class NucleiScanner:
         severities: List[str] = None,
         tags: List[str] = None,
         exclude_tags: List[str] = None,
-        rate_limit: int = 150,
-        timeout: int = 5,
-        retries: int = 1
+        rate_limit: int = 50,
+        timeout: int = 10,
+        retries: int = 2
     ) -> Dict[str, Any]:
         """
         Run Nuclei scan against a target
@@ -91,8 +91,13 @@ class NucleiScanner:
         if tags:
             cmd.extend(["-tags", ",".join(tags)])
 
+        # Always exclude high-noise, destructive, and slow template categories
+        base_exclusions = ["dos", "fuzz", "slow", "brute-force", "headless", "fuzzing"]
         if exclude_tags:
-            cmd.extend(["-exclude-tags", ",".join(exclude_tags)])
+            combined = list(set(base_exclusions + list(exclude_tags)))
+        else:
+            combined = base_exclusions
+        cmd.extend(["-exclude-tags", ",".join(combined)])
 
         try:
             # Run Nuclei
@@ -205,27 +210,20 @@ class NucleiScanner:
 
 
 class MockScanner:
-    """
-    Fallback scanner when Nuclei is not installed.
-    Returns realistic test findings for demo purposes.
-    """
+    """Fallback when Nuclei is not installed. Returns no findings."""
 
     def is_available(self) -> bool:
-        return True
+        return False
 
     def scan(self, target: str, **kwargs) -> Dict[str, Any]:
-        """Generate mock findings for testing"""
-        from app.routers.findings import seed_demo_findings
-        import uuid
-
-        # This is a mock - in the actual worker, we'd create findings in the database
         return {
-            "success": True,
-            "target": target,
-            "findings_count": 10,
-            "results": [],  # Mock findings will be created by seed_demo_findings
-            "note": "Using mock scanner. Install Nuclei for real scanning."
+            "success": False,
+            "error": "Nuclei is not installed. Install it to run real scans.",
+            "results": [],
         }
+
+    def parse_finding(self, nuclei_result: Dict[str, Any]) -> Dict[str, Any]:
+        return {}
 
 
 # Global scanner instance

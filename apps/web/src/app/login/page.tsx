@@ -9,15 +9,20 @@ export default function LoginPage() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function onLogin(e?: React.FormEvent) {
+  async function onLogin(e?: React.FormEvent<HTMLFormElement>) {
     if (e) e.preventDefault();
     setErr("");
     setLoading(true);
 
+    // Read directly from DOM to handle browser autofill (which skips React onChange)
+    const form = e?.currentTarget;
+    const emailVal = (form?.elements.namedItem("email") as HTMLInputElement)?.value ?? email;
+    const passwordVal = (form?.elements.namedItem("password") as HTMLInputElement)?.value ?? password;
+
     try {
       const data = await apiFetch("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: emailVal, password: passwordVal })
       });
       localStorage.setItem("ts_token", data.access_token);
       window.location.href = "/dashboard";
@@ -94,6 +99,7 @@ export default function LoginPage() {
             <label style={styles.label}>Email Address</label>
             <input
               type="email"
+              name="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
@@ -107,6 +113,7 @@ export default function LoginPage() {
             <label style={styles.label}>Password</label>
             <input
               type="password"
+              name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"

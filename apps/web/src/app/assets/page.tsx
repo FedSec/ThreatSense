@@ -12,45 +12,12 @@ type Asset = {
   verified: boolean;
 };
 
-const NUCLEI_PRESETS: Record<string, any> = {
-  "Default (Med+)": {
-    severities: ["medium", "high", "critical"],
-    exclude_tags: "dos,fuzz",
-    rate_limit: 50,
-    timeout: 10,
-    retries: 1,
-    wall_clock_timeout: 600,
-    headless: false,
-  },
-  "Quick (High/Critical)": {
-    severities: ["high", "critical"],
-    exclude_tags: "dos,fuzz",
-    rate_limit: 75,
-    timeout: 8,
-    retries: 1,
-    wall_clock_timeout: 420,
-    headless: false,
-  },
-  "CVE Focus": {
-    severities: ["medium", "high", "critical"],
-    tags: "cves",
-    exclude_tags: "dos,fuzz",
-    rate_limit: 40,
-    timeout: 12,
-    retries: 1,
-    wall_clock_timeout: 900,
-    headless: false,
-  },
+const DEFAULT_SCAN_PARAMS = {
+  severities: ["medium", "high", "critical"],
+  rate_limit: 50,
+  timeout: 10,
+  retries: 2,
 };
-
-function safeJsonParse(input: string) {
-  if (!input.trim()) return {};
-  try {
-    return JSON.parse(input);
-  } catch {
-    throw new Error('Parameters must be valid JSON (example: {"timeout":10}).');
-  }
-}
 
 export default function AssetsPage() {
   const [token, setToken] = useState("");
@@ -63,14 +30,6 @@ export default function AssetsPage() {
   // Create asset form
   const [kind, setKind] = useState("domain");
   const [value, setValue] = useState("");
-
-  // Default scan settings
-  const [presetKey, setPresetKey] = useState<keyof typeof NUCLEI_PRESETS>("Default (Med+)");
-  const [scanType, setScanType] = useState("vuln_scan");
-  const [plugin, setPlugin] = useState("nuclei_scan");
-  const [paramsText, setParamsText] = useState(
-    JSON.stringify(NUCLEI_PRESETS["Default (Med+)"], null, 2)
-  );
 
   async function loadAssets(t: string) {
     setErr("");
@@ -123,18 +82,16 @@ export default function AssetsPage() {
     setErr("");
     setSuccessMsg("");
     try {
-      const parameters = safeJsonParse(paramsText);
-
       await apiFetch(
         "/scans",
         {
           method: "POST",
           body: JSON.stringify({
             asset_id: assetId,
-            scan_type: scanType,
-            plugin,
+            scan_type: "vuln_scan",
+            plugin: "nuclei_scan",
             requires_approval: false,
-            parameters,
+            parameters: DEFAULT_SCAN_PARAMS,
           }),
         },
         token
@@ -242,82 +199,6 @@ export default function AssetsPage() {
             >
               CREATE
             </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Default Scan Settings */}
-      <section style={{ ...styles.card, marginBottom: "32px" }}>
-        <h2 style={{
-          margin: 0,
-          marginBottom: "8px",
-          color: colors.primary,
-          fontSize: "24px",
-          fontWeight: 600,
-        }}>
-          Default Scan Settings
-        </h2>
-        <p style={{
-          marginTop: 0,
-          marginBottom: "24px",
-          color: colors.textSecondary,
-          fontSize: "14px",
-        }}>
-          Configure default parameters for quick scanning from the asset list
-        </p>
-
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))",
-          gap: "24px",
-        }}>
-          <div>
-            <label style={styles.label}>Scan Type</label>
-            <select
-              style={styles.select}
-              value={scanType}
-              onChange={(e) => setScanType(e.target.value)}
-            >
-              <option value="vuln_scan">Vulnerability Scan</option>
-              <option value="soc">SOC Detection Run</option>
-              <option value="ptaas">PTaaS Workflow</option>
-            </select>
-
-            <label style={{ ...styles.label, marginTop: "16px" }}>Nuclei Preset</label>
-            <select
-              style={styles.select}
-              value={presetKey as string}
-              onChange={(e) => {
-                const key = e.target.value as keyof typeof NUCLEI_PRESETS;
-                setPresetKey(key);
-                setParamsText(JSON.stringify(NUCLEI_PRESETS[key], null, 2));
-                setPlugin("nuclei_scan");
-                setScanType("vuln_scan");
-              }}
-            >
-              {Object.keys(NUCLEI_PRESETS).map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-
-            <label style={{ ...styles.label, marginTop: "16px" }}>Plugin</label>
-            <input
-              style={styles.input}
-              value={plugin}
-              onChange={(e) => setPlugin(e.target.value)}
-              placeholder='nuclei_scan'
-            />
-          </div>
-
-          <div>
-            <label style={styles.label}>Parameters (JSON)</label>
-            <textarea
-              style={{ ...styles.textarea, height: "170px" }}
-              value={paramsText}
-              onChange={(e) => setParamsText(e.target.value)}
-            />
           </div>
         </div>
       </section>

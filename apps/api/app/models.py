@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column, JSON
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -97,7 +98,7 @@ class Scan(SQLModel, table=True):
     scan_type: str  # vuln_scan, soc, ptaas
     plugin: str  # nuclei_scan, nmap_stub, etc.
     status: str = ScanStatus.QUEUED  # queued, running, completed, failed, awaiting_approval
-    parameters: dict = Field(default={}, sa_column_kwargs={"type_": "JSON"})
+    parameters: Optional[dict] = Field(default={}, sa_column=Column(JSON))
     requires_approval: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -133,8 +134,8 @@ class Finding(SQLModel, table=True):
     remediation: Optional[str] = None
 
     # Metadata
-    references: List[str] = Field(default=[], sa_column_kwargs={"type_": "JSON"})
-    tags: List[str] = Field(default=[], sa_column_kwargs={"type_": "JSON"})
+    references: Optional[List[str]] = Field(default=[], sa_column=Column(JSON))
+    tags: Optional[List[str]] = Field(default=[], sa_column=Column(JSON))
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -153,5 +154,5 @@ class ScanResult(SQLModel, table=True):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     scan_id: str = Field(foreign_key="scans.id", index=True)
-    raw_output: dict = Field(sa_column_kwargs={"type_": "JSON"})
+    raw_output: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)

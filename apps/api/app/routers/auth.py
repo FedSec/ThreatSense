@@ -16,10 +16,11 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 # Mock user database - Replace with real database in production
+# Pre-hashed password for demo123
 MOCK_USERS = {
     "demo@threatsense.com": {
         "email": "demo@threatsense.com",
-        "hashed_password": pwd_context.hash("demo123"),  # Password: demo123
+        "hashed_password": "$2b$12$mWJqgooZJStSokhOTHQvPOg7QV6AF73wRwvA6.nAJ4soh7h7ZGUpW",  # Password: demo123
         "full_name": "Demo User",
         "customer_id": "customer_001"
     }
