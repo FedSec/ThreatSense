@@ -139,9 +139,19 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <p style={{
+          marginTop: "20px",
+          textAlign: "center",
+          fontSize: "13px",
+          color: colors.textSecondary,
+        }}>
+          No account?{" "}
+          <a href="/register" style={{ color: colors.primary }}>Register</a>
+        </p>
+
         {/* Footer */}
         <div style={{
-          marginTop: "32px",
+          marginTop: "24px",
           paddingTop: "24px",
           borderTop: `1px solid ${colors.borderSecondary}`,
           textAlign: "center",

@@ -15,8 +15,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python packaging build dirs (do not ignore apps/web/src/lib)
+/lib/
 lib64/
+!apps/web/src/lib/
 parts/
 sdist/
 var/
@@ -34,8 +36,13 @@ htmlcov/
 .tox/
 .hypothesis/
 venv/
+.venv/
 env/
 ENV/
+apps/api/.venv/
+apps/worker/.venv/
+apps/mobile/node_modules/
+apps/mobile/.expo/
 
 # Node
 node_modules/

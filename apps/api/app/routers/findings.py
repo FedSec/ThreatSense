@@ -1,194 +1,216 @@
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
-from typing import List, Optional
-import uuid
+import csv
+import io
 from datetime import datetime
-from enum import Enum
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select, func
+
+from app.database import get_session
+from app.deps import get_current_customer, get_current_user
+from app.models import Customer, Finding, FindingStatus, User
+from app.schemas import (
+    FindingAggregate,
+    FindingCreate,
+    FindingOut,
+    FindingStats,
+    FindingUpdate,
+)
+from app.services.findings_util import make_fingerprint
 
 router = APIRouter(prefix="/findings", tags=["findings"])
 
 
-class Severity(str, Enum):
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    INFO = "info"
+def _to_out(f: Finding) -> FindingOut:
+    return FindingOut(
+        id=f.id,
+        customer_id=f.customer_id,
+        asset_id=f.asset_id,
+        scan_id=f.scan_id,
+        fingerprint=f.fingerprint,
+        title=f.title,
+        description=f.description,
+        severity=f.severity,
+        status=f.status,
+        finding_type=f.finding_type,
+        cvss_score=f.cvss_score,
+        cve_id=f.cve_id,
+        cwe_id=f.cwe_id,
+        affected_resource=f.affected_resource,
+        proof_of_concept=f.proof_of_concept,
+        remediation=f.remediation,
+        references=f.references or [],
+        tags=f.tags or [],
+        created_at=f.created_at,
+        updated_at=f.updated_at,
+        resolved_at=f.resolved_at,
+        resolved_by=f.resolved_by,
+    )
 
 
-class FindingStatus(str, Enum):
-    OPEN = "open"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-    FALSE_POSITIVE = "false_positive"
-    ACCEPTED_RISK = "accepted_risk"
+def _base_query(customer_id: str):
+    return select(Finding).where(Finding.customer_id == customer_id)
 
 
-class FindingType(str, Enum):
-    VULNERABILITY = "vulnerability"
-    MISCONFIGURATION = "misconfiguration"
-    WEAK_CREDENTIAL = "weak_credential"
-    EXPOSED_SERVICE = "exposed_service"
-    CVE = "cve"
-    COMPLIANCE = "compliance"
-
-
-class FindingBase(BaseModel):
-    title: str
-    description: str
-    severity: Severity
-    finding_type: FindingType
-    asset_id: str
-    scan_id: str
-
-
-class FindingCreate(FindingBase):
-    cvss_score: Optional[float] = None
-    cve_id: Optional[str] = None
-    cwe_id: Optional[str] = None
-    affected_resource: Optional[str] = None
-    proof_of_concept: Optional[str] = None
-    remediation: Optional[str] = None
-    references: Optional[List[str]] = []
-    tags: Optional[List[str]] = []
-
-
-class Finding(FindingCreate):
-    id: str
-    status: FindingStatus
-    created_at: str
-    updated_at: str
-    resolved_at: Optional[str] = None
-    resolved_by: Optional[str] = None
-
-
-class FindingUpdate(BaseModel):
-    status: Optional[FindingStatus] = None
-
-
-class FindingStats(BaseModel):
-    total: int
-    critical: int
-    high: int
-    medium: int
-    low: int
-    info: int
-    open: int
-    resolved: int
-    in_progress: int
-
-
-FINDINGS_DB: List[Finding] = []
-
-
-@router.get("", response_model=List[Finding])
+@router.get("", response_model=list[FindingOut])
 async def list_findings(
-    severity: Optional[Severity] = None,
-    status: Optional[FindingStatus] = None,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
     asset_id: Optional[str] = None,
     scan_id: Optional[str] = None,
-    finding_type: Optional[FindingType] = None,
+    finding_type: Optional[str] = None,
     limit: int = Query(100, le=1000),
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
 ):
-    results = FINDINGS_DB.copy()
-
+    q = _base_query(customer.id)
     if severity:
-        results = [f for f in results if f.severity == severity]
+        q = q.where(Finding.severity == severity)
     if status:
-        results = [f for f in results if f.status == status]
+        q = q.where(Finding.status == status)
     if asset_id:
-        results = [f for f in results if f.asset_id == asset_id]
+        q = q.where(Finding.asset_id == asset_id)
     if scan_id:
-        results = [f for f in results if f.scan_id == scan_id]
+        q = q.where(Finding.scan_id == scan_id)
     if finding_type:
-        results = [f for f in results if f.finding_type == finding_type]
+        q = q.where(Finding.finding_type == finding_type)
 
-    severity_order = {
-        Severity.CRITICAL: 0,
-        Severity.HIGH: 1,
-        Severity.MEDIUM: 2,
-        Severity.LOW: 3,
-        Severity.INFO: 4,
-    }
-    results.sort(key=lambda x: (severity_order.get(x.severity, 99), x.created_at))
+    findings = session.exec(q.order_by(Finding.created_at.desc()).limit(limit)).all()
 
-    return results[:limit]
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    findings = sorted(
+        findings,
+        key=lambda x: (severity_order.get(x.severity, 99), x.created_at),
+    )
+    return [_to_out(f) for f in findings]
 
 
 @router.get("/stats", response_model=FindingStats)
-async def get_finding_stats():
+async def get_finding_stats(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    cid = customer.id
+
+    def count_where(**kwargs):
+        q = select(func.count()).select_from(Finding).where(Finding.customer_id == cid)
+        for k, v in kwargs.items():
+            q = q.where(getattr(Finding, k) == v)
+        return int(session.exec(q).one() or 0)
+
     return FindingStats(
-        total=len(FINDINGS_DB),
-        critical=sum(1 for f in FINDINGS_DB if f.severity == Severity.CRITICAL),
-        high=sum(1 for f in FINDINGS_DB if f.severity == Severity.HIGH),
-        medium=sum(1 for f in FINDINGS_DB if f.severity == Severity.MEDIUM),
-        low=sum(1 for f in FINDINGS_DB if f.severity == Severity.LOW),
-        info=sum(1 for f in FINDINGS_DB if f.severity == Severity.INFO),
-        open=sum(1 for f in FINDINGS_DB if f.status == FindingStatus.OPEN),
-        resolved=sum(1 for f in FINDINGS_DB if f.status == FindingStatus.RESOLVED),
-        in_progress=sum(1 for f in FINDINGS_DB if f.status == FindingStatus.IN_PROGRESS),
+        total=count_where(),
+        critical=count_where(severity="critical"),
+        high=count_where(severity="high"),
+        medium=count_where(severity="medium"),
+        low=count_where(severity="low"),
+        info=count_where(severity="info"),
+        open=count_where(status=FindingStatus.OPEN.value),
+        resolved=count_where(status=FindingStatus.RESOLVED.value),
+        in_progress=count_where(status=FindingStatus.IN_PROGRESS.value),
     )
 
 
-@router.post("", response_model=Finding)
-async def create_finding(finding: FindingCreate):
-    now = datetime.utcnow().isoformat()
-    new_finding = Finding(
-        id=str(uuid.uuid4()),
-        **finding.dict(),
-        status=FindingStatus.OPEN,
-        created_at=now,
-        updated_at=now,
+@router.get("/aggregate", response_model=FindingAggregate)
+async def aggregate_findings(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    cid = customer.id
+    findings = session.exec(select(Finding).where(Finding.customer_id == cid)).all()
+
+    by_severity: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_type: dict[str, int] = {}
+    by_asset: dict[str, int] = {}
+    for f in findings:
+        by_severity[f.severity] = by_severity.get(f.severity, 0) + 1
+        by_status[f.status] = by_status.get(f.status, 0) + 1
+        by_type[f.finding_type] = by_type.get(f.finding_type, 0) + 1
+        by_asset[f.asset_id] = by_asset.get(f.asset_id, 0) + 1
+
+    return FindingAggregate(
+        by_severity=by_severity,
+        by_status=by_status,
+        by_type=by_type,
+        by_asset=by_asset,
     )
-    FINDINGS_DB.append(new_finding)
-    return new_finding
 
 
-@router.get("/{finding_id}", response_model=Finding)
-async def get_finding(finding_id: str):
-    for f in FINDINGS_DB:
-        if f.id == finding_id:
-            return f
-    raise HTTPException(status_code=404, detail="Finding not found")
+@router.post("", response_model=FindingOut)
+async def create_finding(
+    body: FindingCreate,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    fp = make_fingerprint(
+        customer.id, body.title, body.affected_resource, body.cve_id
+    )
+    existing = session.exec(
+        select(Finding).where(
+            Finding.customer_id == customer.id,
+            Finding.fingerprint == fp,
+        )
+    ).first()
+    if existing:
+        existing.scan_id = body.scan_id
+        existing.updated_at = datetime.utcnow()
+        existing.description = body.description
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return _to_out(existing)
 
-
-@router.patch("/{finding_id}", response_model=Finding)
-async def update_finding(finding_id: str, update: FindingUpdate):
-    for f in FINDINGS_DB:
-        if f.id == finding_id:
-            if update.status:
-                f.status = update.status
-                if update.status == FindingStatus.RESOLVED:
-                    f.resolved_at = datetime.utcnow().isoformat()
-                    f.resolved_by = "current_user"
-            f.updated_at = datetime.utcnow().isoformat()
-            return f
-    raise HTTPException(status_code=404, detail="Finding not found")
-
-
-@router.delete("/{finding_id}")
-async def mark_false_positive(finding_id: str):
-    for f in FINDINGS_DB:
-        if f.id == finding_id:
-            f.status = FindingStatus.FALSE_POSITIVE
-            f.updated_at = datetime.utcnow().isoformat()
-            return {"message": "Finding marked as false positive"}
-    raise HTTPException(status_code=404, detail="Finding not found")
+    finding = Finding(
+        customer_id=customer.id,
+        asset_id=body.asset_id,
+        scan_id=body.scan_id,
+        fingerprint=fp,
+        title=body.title,
+        description=body.description,
+        severity=body.severity,
+        finding_type=body.finding_type,
+        cvss_score=body.cvss_score,
+        cve_id=body.cve_id,
+        cwe_id=body.cwe_id,
+        affected_resource=body.affected_resource,
+        proof_of_concept=body.proof_of_concept,
+        remediation=body.remediation,
+        references=body.references or [],
+        tags=body.tags or [],
+        status=FindingStatus.OPEN.value,
+    )
+    session.add(finding)
+    session.commit()
+    session.refresh(finding)
+    return _to_out(finding)
 
 
 @router.get("/export/json")
 async def export_findings_json(
-    severity: Optional[Severity] = None,
-    status: Optional[FindingStatus] = None,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
 ):
-    findings = await list_findings(severity=severity, status=status)
+    findings = await list_findings(
+        severity=severity,
+        status=status,
+        customer=customer,
+        session=session,
+    )
     return {"findings": findings, "exported_at": datetime.utcnow().isoformat()}
 
 
 @router.get("/export/csv")
-async def export_findings_csv():
-    import io
-    import csv
+async def export_findings_csv(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    findings = session.exec(
+        select(Finding).where(Finding.customer_id == customer.id)
+    ).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -196,10 +218,132 @@ async def export_findings_csv():
         "ID", "Title", "Severity", "Status", "Type", "CVSS Score",
         "CVE ID", "CWE ID", "Asset ID", "Scan ID", "Created", "Resolved",
     ])
-    for f in FINDINGS_DB:
+    for f in findings:
         writer.writerow([
             f.id, f.title, f.severity, f.status, f.finding_type,
             f.cvss_score or "N/A", f.cve_id or "N/A", f.cwe_id or "N/A",
-            f.asset_id, f.scan_id, f.created_at, f.resolved_at or "N/A",
+            f.asset_id, f.scan_id,
+            f.created_at.isoformat() if f.created_at else "",
+            f.resolved_at.isoformat() if f.resolved_at else "N/A",
         ])
-    return {"csv": output.getvalue(), "exported_at": datetime.utcnow().isoformat()}
+
+    data = output.getvalue()
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=threatsense-findings.csv"},
+    )
+
+
+@router.get("/export/pdf")
+async def export_findings_pdf(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    findings = session.exec(
+        select(Finding)
+        .where(Finding.customer_id == customer.id)
+        .order_by(Finding.severity)
+        .limit(100)
+    ).all()
+    stats = await get_finding_stats(customer=customer, session=session)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    width, height = letter
+    y = height - 50
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, y, "ThreatSense Findings Report")
+    y -= 24
+    c.setFont("Helvetica", 10)
+    c.drawString(50, y, f"Company: {customer.company_name}")
+    y -= 14
+    c.drawString(50, y, f"Generated: {datetime.utcnow().isoformat()}Z")
+    y -= 20
+    c.drawString(
+        50,
+        y,
+        f"Total: {stats.total} | Critical: {stats.critical} | High: {stats.high} | "
+        f"Medium: {stats.medium} | Open: {stats.open}",
+    )
+    y -= 30
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Top findings")
+    y -= 18
+    c.setFont("Helvetica", 9)
+
+    for f in findings[:40]:
+        if y < 60:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 9)
+        line = f"[{f.severity.upper()}] {f.title[:80]}"
+        c.drawString(50, y, line)
+        y -= 12
+        if f.cve_id:
+            c.drawString(60, y, f"CVE: {f.cve_id}")
+            y -= 12
+
+    c.save()
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=threatsense-findings.pdf"},
+    )
+
+
+@router.get("/{finding_id}", response_model=FindingOut)
+async def get_finding(
+    finding_id: str,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    f = session.get(Finding, finding_id)
+    if not f or f.customer_id != customer.id:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return _to_out(f)
+
+
+@router.patch("/{finding_id}", response_model=FindingOut)
+async def update_finding(
+    finding_id: str,
+    update: FindingUpdate,
+    customer: Customer = Depends(get_current_customer),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    f = session.get(Finding, finding_id)
+    if not f or f.customer_id != customer.id:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    if update.status:
+        f.status = update.status
+        if update.status == FindingStatus.RESOLVED.value:
+            f.resolved_at = datetime.utcnow()
+            f.resolved_by = user.email
+    f.updated_at = datetime.utcnow()
+    session.add(f)
+    session.commit()
+    session.refresh(f)
+    return _to_out(f)
+
+
+@router.delete("/{finding_id}")
+async def mark_false_positive(
+    finding_id: str,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    f = session.get(Finding, finding_id)
+    if not f or f.customer_id != customer.id:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    f.status = FindingStatus.FALSE_POSITIVE.value
+    f.updated_at = datetime.utcnow()
+    session.add(f)
+    session.commit()
+    return {"message": "Finding marked as false positive"}

@@ -1,44 +1,64 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List
-import uuid
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
+
+from app.database import get_session
+from app.deps import get_current_customer
+from app.models import Asset, Customer
+from app.schemas import AssetCreate, AssetOut
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
-# Mock database for assets
-MOCK_ASSETS_DB = []
 
-class AssetCreate(BaseModel):
-    kind: str
-    value: str
+@router.get("", response_model=list[AssetOut])
+async def list_assets(
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    assets = session.exec(
+        select(Asset).where(Asset.customer_id == customer.id)
+    ).all()
+    return assets
 
-class Asset(BaseModel):
-    id: str
-    kind: str
-    value: str
-    verified: bool = False
 
-@router.get("", response_model=List[Asset])
-async def list_assets():
-    """List all assets for the current customer"""
-    return MOCK_ASSETS_DB
-
-@router.post("", response_model=Asset)
-async def create_asset(asset: AssetCreate):
-    """Create a new asset"""
-    new_asset = Asset(
-        id=str(uuid.uuid4()),
-        kind=asset.kind,
-        value=asset.value,
-        verified=False
+@router.post("", response_model=AssetOut)
+async def create_asset(
+    body: AssetCreate,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    asset = Asset(
+        customer_id=customer.id,
+        kind=body.kind,
+        value=body.value,
+        verified=False,
     )
-    MOCK_ASSETS_DB.append(new_asset)
-    return new_asset
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    return asset
 
-@router.get("/{asset_id}", response_model=Asset)
-async def get_asset(asset_id: str):
-    """Get a specific asset by ID"""
-    for asset in MOCK_ASSETS_DB:
-        if asset.id == asset_id:
-            return asset
-    raise HTTPException(status_code=404, detail="Asset not found")
+
+@router.get("/{asset_id}", response_model=AssetOut)
+async def get_asset(
+    asset_id: str,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    asset = session.get(Asset, asset_id)
+    if not asset or asset.customer_id != customer.id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return asset
+
+
+@router.delete("/{asset_id}")
+async def delete_asset(
+    asset_id: str,
+    customer: Customer = Depends(get_current_customer),
+    session: Session = Depends(get_session),
+):
+    asset = session.get(Asset, asset_id)
+    if not asset or asset.customer_id != customer.id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    session.delete(asset)
+    session.commit()
+    return {"message": "Asset deleted"}

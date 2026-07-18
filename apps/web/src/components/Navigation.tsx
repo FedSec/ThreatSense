@@ -10,6 +10,8 @@ export default function Navigation() {
     { href: "/assets", label: "Assets" },
     { href: "/findings", label: "Findings" },
     { href: "/ai", label: "AI Advisor" },
+    { href: "/settings", label: "Settings" },
+    { href: "/billing", label: "Billing" },
   ];
 
   function logout() {

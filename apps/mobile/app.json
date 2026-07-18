@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "ThreatSense",
+    "slug": "threatsense",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.threatsense.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "package": "com.threatsense.app"
+    },
+    "extra": {
+      "apiBase": "http://localhost:8000"
+    }
+  }
+}

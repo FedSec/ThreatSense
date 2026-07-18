@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { colors, styles } from "@/styles/theme";
-import { apiFetch } from "@/lib/api";
+import { API_BASE, apiFetch } from "@/lib/api";
 
 type Finding = {
   id: string;
@@ -97,6 +97,24 @@ export default function FindingsPage() {
     }
   }
 
+  async function downloadExport(format: "csv" | "pdf") {
+    try {
+      const res = await fetch(`${API_BASE}/findings/export/${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `threatsense-findings.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setErr(e?.message || "Export failed.");
+    }
+  }
+
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
       case "critical": return colors.critical;
@@ -149,13 +167,21 @@ export default function FindingsPage() {
           </p>
         </div>
 
-        <button
-          style={styles.button}
-          onClick={() => loadData(token)}
-          disabled={loading}
-        >
-          REFRESH
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={styles.buttonSecondary} onClick={() => downloadExport("csv")}>
+            CSV
+          </button>
+          <button style={styles.buttonSecondary} onClick={() => downloadExport("pdf")}>
+            PDF
+          </button>
+          <button
+            style={styles.button}
+            onClick={() => loadData(token)}
+            disabled={loading}
+          >
+            REFRESH
+          </button>
+        </div>
       </div>
 
       {err && (

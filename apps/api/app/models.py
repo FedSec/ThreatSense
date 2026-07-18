@@ -1,12 +1,11 @@
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import Column, JSON
+from sqlalchemy import Column, JSON, UniqueConstraint
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 import uuid
 
 
-# Enums
 class Severity(str, Enum):
     CRITICAL = "critical"
     HIGH = "high"
@@ -40,18 +39,28 @@ class ScanStatus(str, Enum):
     AWAITING_APPROVAL = "awaiting_approval"
 
 
-# Models
+class PlanTier(str, Enum):
+    STARTER = "starter"
+    PROFESSIONAL = "professional"
+    ENTERPRISE = "enterprise"
+
+
 class Customer(SQLModel, table=True):
     __tablename__ = "customers"
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     company_name: str
     email: str = Field(unique=True, index=True)
+    plan: str = Field(default=PlanTier.STARTER.value)
+    stripe_customer_id: Optional[str] = Field(default=None, index=True)
+    stripe_subscription_id: Optional[str] = None
+    slack_webhook_url: Optional[str] = None
+    discord_webhook_url: Optional[str] = None
+    notify_email: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True
 
-    # Relationships
     users: List["User"] = Relationship(back_populates="customer")
     assets: List["Asset"] = Relationship(back_populates="customer")
 
@@ -63,13 +72,12 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, index=True)
     hashed_password: str
     full_name: str
-    customer_id: str = Field(foreign_key="customers.id")
+    customer_id: str = Field(foreign_key="customers.id", index=True)
     is_active: bool = True
     is_admin: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Relationships
     customer: Customer = Relationship(back_populates="users")
 
 
@@ -78,13 +86,12 @@ class Asset(SQLModel, table=True):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     customer_id: str = Field(foreign_key="customers.id", index=True)
-    kind: str  # domain, ip, host, webapp, log_source, url
+    kind: str
     value: str
     verified: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Relationships
     customer: Customer = Relationship(back_populates="assets")
     scans: List["Scan"] = Relationship(back_populates="asset")
     findings: List["Finding"] = Relationship(back_populates="asset")
@@ -94,10 +101,11 @@ class Scan(SQLModel, table=True):
     __tablename__ = "scans"
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    customer_id: str = Field(foreign_key="customers.id", index=True)
     asset_id: str = Field(foreign_key="assets.id", index=True)
-    scan_type: str  # vuln_scan, soc, ptaas
-    plugin: str  # nuclei_scan, nmap_stub, etc.
-    status: str = ScanStatus.QUEUED  # queued, running, completed, failed, awaiting_approval
+    scan_type: str
+    plugin: str
+    status: str = ScanStatus.QUEUED.value
     parameters: Optional[dict] = Field(default={}, sa_column=Column(JSON))
     requires_approval: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -106,26 +114,28 @@ class Scan(SQLModel, table=True):
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
-    # Relationships
     asset: Asset = Relationship(back_populates="scans")
     findings: List["Finding"] = Relationship(back_populates="scan")
 
 
 class Finding(SQLModel, table=True):
     __tablename__ = "findings"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "fingerprint", name="uq_finding_customer_fingerprint"),
+    )
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    customer_id: str = Field(foreign_key="customers.id", index=True)
     asset_id: str = Field(foreign_key="assets.id", index=True)
     scan_id: str = Field(foreign_key="scans.id", index=True)
+    fingerprint: str = Field(index=True)
 
-    # Core fields
     title: str
     description: str
-    severity: str  # critical, high, medium, low, info
-    status: str = FindingStatus.OPEN  # open, in_progress, resolved, false_positive, accepted_risk
-    finding_type: str  # vulnerability, misconfiguration, etc.
+    severity: str
+    status: str = FindingStatus.OPEN.value
+    finding_type: str
 
-    # Technical details
     cvss_score: Optional[float] = None
     cve_id: Optional[str] = None
     cwe_id: Optional[str] = None
@@ -133,23 +143,19 @@ class Finding(SQLModel, table=True):
     proof_of_concept: Optional[str] = None
     remediation: Optional[str] = None
 
-    # Metadata
     references: Optional[List[str]] = Field(default=[], sa_column=Column(JSON))
     tags: Optional[List[str]] = Field(default=[], sa_column=Column(JSON))
 
-    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
 
-    # Relationships
     asset: Asset = Relationship(back_populates="findings")
     scan: Scan = Relationship(back_populates="findings")
 
 
 class ScanResult(SQLModel, table=True):
-    """Raw scan results from tools like Nuclei"""
     __tablename__ = "scan_results"
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)

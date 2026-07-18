@@ -1,10 +1,13 @@
 import os
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import anthropic
+
+from app.deps import get_current_customer
+from app.models import Customer
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -39,12 +42,20 @@ class CodeAnalysisRequest(BaseModel):
     filename: Optional[str] = None
 
 
-def _findings_context() -> str:
-    from app.routers.findings import FINDINGS_DB
-    if not FINDINGS_DB:
+def _findings_context(customer_id: str | None = None) -> str:
+    from sqlmodel import Session, select
+    from app.database import engine
+    from app.models import Finding
+
+    with Session(engine) as session:
+        q = select(Finding).order_by(Finding.created_at.desc()).limit(60)
+        if customer_id:
+            q = q.where(Finding.customer_id == customer_id)
+        rows = session.exec(q).all()
+    if not rows:
         return ""
     lines = ["## Active findings in ThreatSense (your context)\n"]
-    for f in FINDINGS_DB[:60]:
+    for f in rows:
         line = f"- [{f.severity.upper()}] {f.title} | status: {f.status}"
         if f.cve_id:
             line += f" | {f.cve_id}"
@@ -67,7 +78,7 @@ async def _no_key_stream():
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, customer: Customer = Depends(get_current_customer)):
     """Stream an AI security advisor response."""
     client = _get_client()
     if not client:
@@ -75,7 +86,7 @@ async def chat(req: ChatRequest):
 
     system = SECURITY_SYSTEM_PROMPT
     if req.include_findings:
-        ctx = _findings_context()
+        ctx = _findings_context(customer.id)
         if ctx:
             system += f"\n\n{ctx}"
 
@@ -100,8 +111,12 @@ async def chat(req: ChatRequest):
 
 
 @router.post("/analyze-code")
-async def analyze_code(req: CodeAnalysisRequest):
+async def analyze_code(
+    req: CodeAnalysisRequest,
+    customer: Customer = Depends(get_current_customer),
+):
     """Analyze source code for security vulnerabilities."""
+    _ = customer
     client = _get_client()
     if not client:
         return StreamingResponse(_no_key_stream(), media_type="text/event-stream")

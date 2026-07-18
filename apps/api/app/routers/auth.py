@@ -1,76 +1,86 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
-from datetime import datetime, timedelta
-from jose import jwt
-from passlib.context import CryptContext
-from typing import Optional
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
+
+from app.database import get_session
+from app.deps import (
+    create_access_token,
+    get_current_customer,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
+from app.models import Customer, PlanTier, User
+from app.schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.services.email import send_welcome_email
+from app.config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+settings = get_settings()
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# JWT settings - In production, use environment variables
-SECRET_KEY = "your-secret-key-change-in-production"  # CHANGE THIS
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+@router.post("/register", response_model=TokenResponse)
+async def register(body: RegisterRequest, session: Session = Depends(get_session)):
+    existing = session.exec(select(User).where(User.email == body.email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-# Mock user database - Replace with real database in production
-# Pre-hashed password for demo123
-MOCK_USERS = {
-    "demo@threatsense.com": {
-        "email": "demo@threatsense.com",
-        "hashed_password": "$2b$12$mWJqgooZJStSokhOTHQvPOg7QV6AF73wRwvA6.nAJ4soh7h7ZGUpW",  # Password: demo123
-        "full_name": "Demo User",
-        "customer_id": "customer_001"
-    }
-}
+    customer = Customer(
+        company_name=body.company_name,
+        email=body.email,
+        plan=PlanTier.STARTER.value,
+        notify_email=body.email,
+    )
+    session.add(customer)
+    session.commit()
+    session.refresh(customer)
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    user = User(
+        email=body.email,
+        hashed_password=hash_password(body.password),
+        full_name=body.full_name,
+        customer_id=customer.id,
+        is_admin=True,
+    )
+    session.add(user)
+    session.commit()
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    send_welcome_email(body.email, body.full_name, body.company_name)
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    token = create_access_token(
+        data={"sub": user.email, "customer_id": customer.id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return TokenResponse(access_token=token)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
 
 @router.post("/login", response_model=TokenResponse)
-async def login(credentials: LoginRequest):
-    """
-    Login endpoint - authenticates user and returns JWT token
-    Default credentials: demo@threatsense.com / demo123
-    """
-    user = MOCK_USERS.get(credentials.email)
+async def login(credentials: LoginRequest, session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == credentials.email)).first()
+    if not user or not verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User inactive")
 
-    if not user or not verify_password(credentials.password, user["hashed_password"]):
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect email or password"
-        )
-
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": credentials.email, "customer_id": user["customer_id"]},
-        expires_delta=access_token_expires
+    token = create_access_token(
+        data={"sub": user.email, "customer_id": user.customer_id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    return TokenResponse(access_token=token)
 
-    return {"access_token": access_token, "token_type": "bearer"}
 
-@router.get("/me")
-async def get_current_user():
-    """Get current user info - requires authentication"""
-    # TODO: Implement JWT token verification
-    return {"email": "demo@threatsense.com", "full_name": "Demo User"}
+@router.get("/me", response_model=UserOut)
+async def me(
+    user: User = Depends(get_current_user),
+    customer: Customer = Depends(get_current_customer),
+):
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        customer_id=user.customer_id,
+        is_admin=user.is_admin,
+        plan=customer.plan,
+        company_name=customer.company_name,
+    )

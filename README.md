@@ -19,26 +19,43 @@ Built for Syracuse University's Entrepreneurial EEE class, ThreatSense addresses
 
 ## 🚀 Quick Start
 
-### Option 1: Automated Setup (Recommended)
+### Option 1: Full stack with Docker (Recommended)
 
 ```bash
-cd ThreatSense-main
+cp .env.example .env
+docker compose up --build
+```
+
+This starts PostgreSQL, Redis, Mailpit (http://localhost:8025), API (8000), Celery worker (Nuclei), and the web app (3000).
+
+### Option 2: Automated local script
+
+```bash
 ./start-dev.sh
 ```
 
-This script will:
-- Install all dependencies
-- Start the API server on port 8000
-- Start the web app on port 3000
-- Display demo login credentials
+Requires Postgres + Redis running locally (or `docker compose up postgres redis mailpit -d`).
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
+
+**Infrastructure:**
+```bash
+docker compose up postgres redis mailpit -d
+```
 
 **Backend:**
 ```bash
 cd apps/api
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
+```
+
+**Worker (separate terminal):**
+```bash
+cd apps/worker
+pip install -r requirements.txt
+celery -A worker.celery_app worker --loglevel=INFO
 ```
 
 **Frontend:**
@@ -46,6 +63,13 @@ uvicorn app.main:app --reload --port 8000
 cd apps/web
 npm install
 npm run dev
+```
+
+**Mobile (Expo):**
+```bash
+cd apps/mobile
+npm install
+EXPO_PUBLIC_API_BASE=http://localhost:8000 npm start
 ```
 
 ## 🔐 Demo Credentials
@@ -109,14 +133,19 @@ ThreatSense features a professional cybersecurity-themed interface with:
 
 **Backend:**
 - FastAPI (Python)
-- JWT Authentication
+- JWT Authentication (customer-scoped multi-tenancy)
 - Bcrypt password hashing
-- SQLModel (ready for PostgreSQL)
+- SQLModel + PostgreSQL + Alembic
+- Celery + Redis workers
+- Stripe billing, SMTP email, Slack/Discord webhooks
 
 **Security Tools:**
 - Nuclei vulnerability scanner
 - Nmap network scanner
 - Custom plugin system
+
+**Mobile:**
+- Expo (React Native) + SecureStore auth
 
 ## 📊 Business Model
 
@@ -143,18 +172,18 @@ ThreatSense features a professional cybersecurity-themed interface with:
 - [x] Basic API endpoints
 
 ### Phase 2 (Next Sprint)
-- [ ] PostgreSQL integration
-- [ ] Real Nuclei scanning integration
-- [ ] Findings aggregation
-- [ ] Email notifications
-- [ ] User registration
+- [x] PostgreSQL integration
+- [x] Real Nuclei scanning integration
+- [x] Findings aggregation
+- [x] Email notifications
+- [x] User registration
 
 ### Phase 3 (Future)
-- [ ] Multi-tenancy (multiple customers)
-- [ ] Stripe payment integration
-- [ ] Advanced reporting (PDF/CSV)
-- [ ] Slack/Discord integrations
-- [ ] Mobile app
+- [x] Multi-tenancy (multiple customers)
+- [x] Stripe payment integration
+- [x] Advanced reporting (PDF/CSV)
+- [x] Slack/Discord integrations
+- [x] Mobile app
 
 ## 📁 Project Structure
 
@@ -176,10 +205,13 @@ ThreatSense-main/
 │   │   │   └── styles/     # Theme configuration
 │   │   └── package.json
 │   │
-│   └── worker/             # Background scan workers
-│       ├── tasks/
-│       └── plugins/
+│   ├── worker/             # Celery + Nuclei scan workers
+│   │   ├── tasks/
+│   │   └── plugins/
+│   │
+│   └── mobile/             # Expo React Native app
 │
+├── docker-compose.yml      # Postgres, Redis, Mailpit, API, worker, web
 ├── start-dev.sh            # Quick start script
 ├── SETUP.md                # Detailed setup guide
 └── README.md               # This file
