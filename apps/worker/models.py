@@ -19,6 +19,10 @@ class Customer(SQLModel, table=True):
     slack_webhook_url: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     notify_email: Optional[str] = None
+    notify_channel: str = "email"
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_api_url: str = "https://api.telegram.org"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True

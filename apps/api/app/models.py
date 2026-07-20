@@ -45,6 +45,14 @@ class PlanTier(str, Enum):
     ENTERPRISE = "enterprise"
 
 
+class NotifyChannel(str, Enum):
+    EMAIL = "email"
+    TELEGRAM = "telegram"
+
+
+DEFAULT_TELEGRAM_API_URL = "https://api.telegram.org"
+
+
 class Customer(SQLModel, table=True):
     __tablename__ = "customers"
 
@@ -57,6 +65,10 @@ class Customer(SQLModel, table=True):
     slack_webhook_url: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     notify_email: Optional[str] = None
+    notify_channel: str = Field(default=NotifyChannel.EMAIL.value)
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_api_url: str = Field(default=DEFAULT_TELEGRAM_API_URL)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True

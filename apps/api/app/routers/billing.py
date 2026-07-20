@@ -120,14 +120,6 @@ async def dev_upgrade(
     session.add(customer)
     session.commit()
     session.refresh(customer)
-    return CustomerOut(
-        id=customer.id,
-        company_name=customer.company_name,
-        email=customer.email,
-        plan=customer.plan,
-        notify_email=customer.notify_email,
-        slack_webhook_url=customer.slack_webhook_url,
-        discord_webhook_url=customer.discord_webhook_url,
-        stripe_customer_id=customer.stripe_customer_id,
-        stripe_subscription_id=customer.stripe_subscription_id,
-    )
+    from app.routers.customers import customer_to_out
+
+    return customer_to_out(customer)

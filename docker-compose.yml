@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: threatsense
       POSTGRES_PASSWORD: threatsense_password
       POSTGRES_DB: threatsense
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +17,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: threatsense-redis
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -30,9 +26,6 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     container_name: threatsense-mailpit
-    ports:
-      - "1025:1025"
-      - "8025:8025"
 
   api:
     build: ./apps/api
@@ -40,13 +33,14 @@ services:
     env_file:
       - .env
     environment:
+      PYTHONPATH: /app
       DATABASE_URL: postgresql+psycopg://threatsense:threatsense_password@postgres:5432/threatsense
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
-      FRONTEND_URL: http://localhost:3000
-      ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      FRONTEND_URL: http://localhost:13000
+      ALLOWED_ORIGINS: http://localhost:13000,http://127.0.0.1:13000,http://localhost:3000,http://127.0.0.1:3000,http://devmad:13000
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,12 +48,11 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
-    ports:
-      - "8000:8000"
     volumes:
       - ./apps/api:/app
+    working_dir: /app
     command: >
-      bash -lc "alembic upgrade head &&
+      bash -c "cd /app && alembic upgrade head &&
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   worker:
@@ -83,20 +76,22 @@ services:
       - ./apps/api/app/models.py:/worker/api_models_src.py:ro
 
   web:
-    image: node:20-alpine
+    build:
+      context: ./apps/web
+      args:
+        # Browser uses same-origin /api; Next rewrites proxy to the api service.
+        NEXT_PUBLIC_API_BASE: /api
+        API_INTERNAL_URL: http://api:8000
     container_name: threatsense-web
-    working_dir: /app
     environment:
-      NEXT_PUBLIC_API_BASE: http://localhost:8000
-    volumes:
-      - ./apps/web:/app
-      - web_node_modules:/app/node_modules
+      NEXT_PUBLIC_API_BASE: /api
+      API_INTERNAL_URL: http://api:8000
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     ports:
-      - "3000:3000"
-    command: sh -c "npm install && npm run dev -- -H 0.0.0.0"
+      - "13000:3000"
     depends_on:
       - api
 
 volumes:
   postgres_data:
-  web_node_modules:

@@ -4,11 +4,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env from repo root or apps/api
-_ROOT = Path(__file__).resolve().parents[3]
-_API_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(_ROOT / ".env")
-load_dotenv(_API_DIR / ".env")
+# Load .env from apps/api and (when present) the monorepo root.
+# Docker layout is /app/app/config.py → only two parents exist.
+_CONFIG_FILE = Path(__file__).resolve()
+_API_DIR = _CONFIG_FILE.parents[1]
+_CANDIDATE_ROOTS = []
+for idx in (2, 3):
+    if len(_CONFIG_FILE.parents) > idx:
+        _CANDIDATE_ROOTS.append(_CONFIG_FILE.parents[idx])
+for root in (*_CANDIDATE_ROOTS, _API_DIR):
+    load_dotenv(root / ".env")
 
 
 @lru_cache

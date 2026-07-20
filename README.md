@@ -137,7 +137,7 @@ ThreatSense features a professional cybersecurity-themed interface with:
 - Bcrypt password hashing
 - SQLModel + PostgreSQL + Alembic
 - Celery + Redis workers
-- Stripe billing, SMTP email, Slack/Discord webhooks
+- Stripe billing, SMTP or Telegram notifications, Slack/Discord webhooks
 
 **Security Tools:**
 - Nuclei vulnerability scanner
@@ -175,7 +175,7 @@ ThreatSense features a professional cybersecurity-themed interface with:
 - [x] PostgreSQL integration
 - [x] Real Nuclei scanning integration
 - [x] Findings aggregation
-- [x] Email notifications
+- [x] Email / Telegram notifications
 - [x] User registration
 
 ### Phase 3 (Future)

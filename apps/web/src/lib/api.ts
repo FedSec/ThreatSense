@@ -1,5 +1,9 @@
+/**
+ * Prefer same-origin `/api` (Next.js rewrite → backend).
+ * Override with an absolute NEXT_PUBLIC_API_BASE only when calling the API directly.
+ */
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "/api";
 
 export async function apiFetch(
   path: string,
@@ -18,10 +22,19 @@ export async function apiFetch(
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error(
+      "Cannot reach API. Is the backend running? (check API / docker compose)"
+    );
+  }
 
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;

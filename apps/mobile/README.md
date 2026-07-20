@@ -18,5 +18,5 @@ On a physical device, set `EXPO_PUBLIC_API_BASE` to your machine's LAN IP (e.g. 
 - Dashboard (counts + recent scans)
 - Assets (add + start Nuclei scan)
 - Findings (list, detail, status update)
-- Settings (email + Slack/Discord webhooks)
+- Settings (email or Telegram + Slack/Discord webhooks)
 - Billing (Stripe Checkout or local plan upgrade)

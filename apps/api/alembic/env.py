@@ -1,9 +1,16 @@
 import os
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
+
+# Ensure /app (or repo apps/api) is importable when alembic is launched from any cwd
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from app.models import (  # noqa: F401 — register metadata
     Customer,

@@ -9,7 +9,7 @@ from celery import shared_task
 from sqlmodel import Session, create_engine, select
 
 from models import Asset, Customer, Finding, Scan, ScanResult
-from notify import notify_webhooks, send_email
+from notify import notify_webhooks, send_email, send_telegram
 from plugins.nmap_stub import NmapStub
 from plugins.nuclei_scan import NucleiScan
 from plugins.soc_rules import SocRules
@@ -159,13 +159,26 @@ def _notify(session: Session, scan: Scan, finding_count: int, high_crit: int) ->
     customer = session.get(Customer, scan.customer_id)
     if not customer:
         return
-    to = customer.notify_email or customer.email
-    send_email(
-        to,
-        f"ThreatSense scan {scan.status}: {scan.id[:8]}",
-        f"Scan {scan.id} finished with status {scan.status}.\n"
-        f"Findings: {finding_count} ({high_crit} high/critical).\n",
+    msg = (
+        f"ThreatSense scan {scan.id[:8]} → {scan.status}\n"
+        f"Findings: {finding_count} ({high_crit} high/critical)"
     )
+    channel = (getattr(customer, "notify_channel", None) or "email").lower()
+    if channel == "telegram":
+        send_telegram(
+            customer.telegram_bot_token,
+            customer.telegram_chat_id,
+            msg,
+            getattr(customer, "telegram_api_url", None),
+        )
+    else:
+        to = customer.notify_email or customer.email
+        send_email(
+            to,
+            f"ThreatSense scan {scan.status}: {scan.id[:8]}",
+            f"Scan {scan.id} finished with status {scan.status}.\n"
+            f"Findings: {finding_count} ({high_crit} high/critical).\n",
+        )
     notify_webhooks(
         customer.slack_webhook_url,
         customer.discord_webhook_url,

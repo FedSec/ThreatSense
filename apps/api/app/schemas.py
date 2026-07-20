@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, field_serializer
+from pydantic import BaseModel, EmailStr, field_serializer, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -141,9 +141,26 @@ class FindingAggregate(BaseModel):
 
 class CustomerUpdate(BaseModel):
     notify_email: Optional[EmailStr] = None
+    notify_channel: Optional[Literal["email", "telegram"]] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_api_url: Optional[str] = None
     slack_webhook_url: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     company_name: Optional[str] = None
+
+    @field_validator(
+        "notify_email",
+        "telegram_bot_token",
+        "telegram_chat_id",
+        "telegram_api_url",
+        mode="before",
+    )
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class CustomerOut(BaseModel):
@@ -152,6 +169,10 @@ class CustomerOut(BaseModel):
     email: str
     plan: str
     notify_email: Optional[str] = None
+    notify_channel: str = "email"
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_api_url: str = "https://api.telegram.org"
     slack_webhook_url: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     stripe_customer_id: Optional[str] = None
