@@ -1,0 +1,34 @@
+version: '3'
+
+vars:
+  SERVER: devmad
+  DEP_PATH: /opt/src/threadtsense
+
+tasks:
+  default:
+    desc: Sync, Build
+    cmds:
+      - ssh "{{.SERVER}}" "mkdir -p {{.DEP_PATH}}"
+      - rsync -avz --delete
+          --exclude=.git
+          --exclude=node_modules
+          --exclude=.next
+          --exclude=**/__pycache__
+          --exclude=*.pyc
+          ./ "{{.SERVER}}:{{.DEP_PATH}}"
+      - ssh  "{{.SERVER}}" "cd {{.DEP_PATH}} && docker compose up -d --build"
+    silent: true
+
+  ps:
+    cmds:
+      - ssh  "{{.SERVER}}" "cd {{.DEP_PATH}} && docker compose ps"
+     
+  up:
+    cmds:
+      - ssh  "{{.SERVER}}" "cd {{.DEP_PATH}} && docker compose up -d"
+      - task: web
+
+  web:
+    cmds:
+      - firefox devmad:13000
+     
